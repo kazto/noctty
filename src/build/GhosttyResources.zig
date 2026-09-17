@@ -11,12 +11,23 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     var steps: std.ArrayList(*std.Build.Step) = .empty;
     errdefer steps.deinit(b.allocator);
 
+    // On Linux hosts, link this native helper against musl (built by Zig
+    // from its own bundled sources) instead of the system glibc. Newer
+    // glibc/GCC toolchains (e.g. GCC 16) emit .sframe sections in crt1.o
+    // that neither Zig's self-hosted ELF linker nor its bundled LLD can
+    // handle (the latter segfaults), so linking against the host's glibc
+    // crt objects can be unusable here.
+    const build_data_target = if (b.graph.host.result.os.tag == .linux)
+        b.resolveTargetQuery(.{ .abi = .musl })
+    else
+        b.graph.host;
+
     // This is the exe used to generate some build data.
     const build_data_exe = b.addExecutable(.{
         .name = "ghostty-build-data",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main_build_data.zig"),
-            .target = b.graph.host,
+            .target = build_data_target,
             .strip = false,
             .omit_frame_pointer = false,
             .unwind_tables = .sync,
